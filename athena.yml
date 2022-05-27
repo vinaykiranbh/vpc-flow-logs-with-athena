@@ -697,9 +697,7 @@ Resources:
                     'statusCode': 200,
                     'body': BytesMetrics
                 }
-
-
-      Description: Invoke a function to analyse the data from S3 and send to Cloudwatch. 
+    Description: Invoke a function to analyse the data from S3 and send to Cloudwatch
   
 
   EventRule:
