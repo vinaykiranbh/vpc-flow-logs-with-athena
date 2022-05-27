@@ -1,0 +1,789 @@
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Athena, S3, Lambda, Cloudwatch, Event Rule and Glue Stack
+
+Parameters:
+  S3LogsBucket:
+    Type: String
+    Description: Enter the Bucket name consists of VPC Flow logs. 
+  QueryOutputBucket:
+    Type: String
+    Description: Enter the Bucket name for query outputs. 
+  CWMNameSpace:
+    Type: String
+    Description: Enter the Custom CloudWatch Metrics NameSpace. 
+
+Resources:
+  # creates a glue database for flow logs athena tables.
+  VpcFlowLogsAthenaDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      DatabaseInput:
+        Name: 'vpcflowlogsathenadatabasefl04c138b19bf7fcb18'
+      CatalogId: !Ref AWS::AccountId
+
+  # this section creates glue athenaTables mapped to s3 flow logs bucket 
+      # creates a workgroup in Athena for queries.
+  fl04c138b19bf7fcb18daily2022052320220523WorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+      Description: This workgroup has the queries related to vpc flow logs.
+      State: ENABLED
+      Tags:
+        - Key: "service"
+          Value: "vpc_flow_logs"
+      WorkGroupConfiguration:
+        BytesScannedCutoffPerQuery: 200000000
+        EnforceWorkGroupConfiguration: true
+        PublishCloudWatchMetricsEnabled: true
+        RequesterPaysEnabled: true
+        ResultConfiguration:
+          OutputLocation: !Sub s3://${QueryOutputBucket}/Athena/query
+        EngineVersion:
+          SelectedEngineVersion: 'Athena engine version 2'
+  
+
+  VpcFlowLogsTotalBytesfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Top 50 pairs of source and destination IP addresses with the most bytes transferred. The start and end in the WHERE clause are placeholders"
+      Name: VpcFlowLogsTotalBytesTransferredfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, srcaddr, dstaddr from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "start"=1653277428880 AND "end"=1653277428880
+        GROUP BY srcaddr, dstaddr
+        ORDER BY totalbytes
+        LIMIT 50
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsBytesPacketsAddressfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Top 30 pairs of source and destination IP addresses with the most bytes & packets transferred."
+      Name: VpcFlowLogsBytesPacketsAddressfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT DISTINCT dstaddr, srcaddr, sum(bytes) AS totalBytes, sum(packets) AS totalPackets 
+        FROM flowlogs group by srcaddr, dstaddr 
+        ORDER BY totalBytes desc 
+        LIMIT 30
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTotalBytesPacketLevelfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Top 50 pairs of packet level source and dest IP addresses with the most bytes transferred. Source Address can be a localized IP whereas Packet IP provides actual end host/node IP. The start and end in the WHERE clause are placeholders"
+      Name: VpcFlowLogsTotalBytesTransferredPacketLevelfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, pkt_srcaddr, pkt_dstaddr from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "start"=1653277428880 AND "end"=1653277428880
+        GROUP BY pkt_srcaddr, pkt_dstaddr
+        ORDER BY totalbytes
+        LIMIT 50
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTopTalkersfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "The top 50 IPs transmitting traffic in your VPC/ENI/Subnet."
+      Name: VpcFlowLogsTopTalkersfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT srcaddr, sum(bytes) as bytes
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        group by srcaddr
+        order by bytes desc
+        limit 50
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTopTalkersPacketLevelfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "The top 50 Packet Level IPs transmitting traffic in your VPC/ENI/Subnet. Source Address can be a localized IP whereas Packet IP provides actual end host/node IP"
+      Name: VpcFlowLogsTopTalkersPacketLevelfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT pkt_srcaddr, sum(bytes) as bytes
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        group by pkt_srcaddr
+        order by bytes desc
+        limit 50
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsSshRdpTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Monitor SSH and RDP traffic"
+      Name: VpcFlowLogsSshRdpTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT *
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE srcport in (22,3389) OR dstport IN (22, 3389)
+        ORDER BY "start" ASC
+        limit 50
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsAdminPortTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Monitor the traffic on administrative web app ports"
+      Name: VpcFlowLogsAdminPortTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT ip, sum(bytes) as total_bytes
+        FROM (
+        SELECT dstaddr as ip,sum(bytes) as bytes
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        GROUP BY 1
+        UNION ALL
+        SELECT srcaddr as ip,sum(bytes) as bytes
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        GROUP BY 1
+        )
+        GROUP BY ip
+        ORDER BY total_bytes
+        DESC LIMIT 10
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsRejectedTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Recorded traffic which was not permitted by the security groups or network ACLs."
+      Name: VpcFlowLogsRejectedTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT srcaddr, dstaddr,  count(*) count, "action"
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "action" = 'REJECT'
+        GROUP BY srcaddr, dstaddr, "action"
+        ORDER BY count desc
+        LIMIT 25
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsRejectedTCPTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Recorded TCP connections(Not flows) which was not permitted by the security groups(if not configured) or network ACLs configuration."
+      Name: VpcFlowLogsRejectedTCPTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT srcaddr, dstaddr,  count(*) count
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "action" = 'REJECT' AND tcp_flags = 2
+        GROUP BY srcaddr, dstaddr
+        ORDER BY count desc
+        LIMIT 25
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsAcceptedTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Recorded TCP connections(Not flows) which were permitted by the security groups or network ACLs configuration."
+      Name: VpcFlowLogsAcceptedTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT srcaddr, dstaddr,  count(*) count, "action"
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "action" = 'ACCEPT' AND tcp_flags = 2
+        GROUP BY srcaddr, dstaddr, "action"
+        ORDER BY count desc
+        LIMIT 25
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTrafficFrmSrcAddrfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Traffic transmitted from a particular source IP address. Here the source address (srcaddr) is a placeholder"
+      Name: VpcFlowLogsTrafficFrmSrcAddrfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT *
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE srcaddr = '198.51.100.2'
+        ORDER BY "start" ASC
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTrafficToDstAddrfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Traffic transmitted from a particular destination IP address. Here the destination address (dstaddr) is a placeholder"
+      Name: VpcFlowLogsTrafficToDstAddrfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT *
+        FROM fl04c138b19bf7fcb18daily2022052320220523
+        WHERE dstaddr = '198.51.100.2'
+        ORDER BY "start" ASC
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTopTalkingInstancesfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Top 50 Instance IDs which send most amount of traffic."
+      Name: VpcFlowLogsTopTalkingInstancesfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, instance_id from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "start"=1653277428880 AND "end"=1653277428880
+        GROUP BY instance_id
+        ORDER BY totalbytes
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTopTalkingSubnetsfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Top 50 Subnet IDs which send most amount of traffic. The start and end are epoch times and are placeholder."
+      Name: VpcFlowLogsTopTalkingSubnetsfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, subnet_id from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "start"=1653277428880 AND "end"=1653277428880
+        GROUP BY subnet_id
+        ORDER BY totalbytes
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsIPv6Trafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Total bytes of IPv6 traffic."
+      Name: VpcFlowLogsIPv6Trafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, instance_id, srcaddr, dstaddr from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE type = 'IPv6'
+        GROUP BY instance_id, srcaddr, dstaddr
+        ORDER BY totalbytes
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsIPv4Trafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "Total bytes of IPv4 traffic."
+      Name: VpcFlowLogsIPv4Trafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, instance_id, srcaddr, dstaddr from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE type = 'IPv4'
+        GROUP BY instance_id, srcaddr, dstaddr
+        ORDER BY totalbytes
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsTopTCPTrafficfl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Athena::NamedQuery
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+      - fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+    Properties:
+      Database: !Ref VpcFlowLogsAthenaDatabase
+      Description: "All TCP traffic originating from a source IP"
+      Name: VpcFlowLogsTopTCPTrafficfl04c138b19bf7fcb18daily2022052320220523
+      QueryString: >
+        SELECT SUM(bytes) as totalbytes, pkt_srcaddr from fl04c138b19bf7fcb18daily2022052320220523
+        WHERE "protocol" = 6
+        GROUP BY pkt_srcaddr
+        ORDER BY totalbytes
+        LIMIT 50;
+      WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+
+  VpcFlowLogsAthenafl04c138b19bf7fcb18daily2022052320220523:
+    Type: AWS::Glue::Table
+    DependsOn:
+      - VpcFlowLogsAthenaDatabase
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref VpcFlowLogsAthenaDatabase
+      TableInput:
+        Description: This table has the schema for vpc flow logs information.
+        Name: fl04c138b19bf7fcb18daily2022052320220523
+        PartitionKeys:
+          - Name: year
+            Type: string
+          - Name: month
+            Type: string
+          - Name: day
+            Type: string
+          - Name: hour
+            Type: string
+        TableType: EXTERNAL_TABLE
+        StorageDescriptor:
+          Location: !Sub s3://${S3LogsBucket}/AWSLogs/${AWS::AccountId}/vpcflowlogs/${AWS::Region}/
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          SerdeInfo:
+            Parameters:
+              skip.header.line.count: "1"
+              EXTERNAL: "true"
+              field.delim: ' '
+              serialization.format: ' '
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+          Columns:
+            - Name: 'account_id'
+              Type: string
+            - Name: 'action'
+              Type: string
+            - Name: 'az_id'
+              Type: string
+            - Name: 'bytes'
+              Type: bigint
+            - Name: 'dstaddr'
+              Type: string
+            - Name: 'dstport'
+              Type: int
+            - Name: 'end'
+              Type: bigint
+            - Name: 'flow_direction'
+              Type: string
+            - Name: 'instance_id'
+              Type: string
+            - Name: 'interface_id'
+              Type: string
+            - Name: 'log_status'
+              Type: string
+            - Name: 'packets'
+              Type: bigint
+            - Name: 'pkt_dst_aws_service'
+              Type: string
+            - Name: 'pkt_dstaddr'
+              Type: string
+            - Name: 'pkt_src_aws_service'
+              Type: string
+            - Name: 'pkt_srcaddr'
+              Type: string
+            - Name: 'protocol'
+              Type: bigint
+            - Name: 'region'
+              Type: string
+            - Name: 'srcaddr'
+              Type: string
+            - Name: 'srcport'
+              Type: int
+            - Name: 'start'
+              Type: bigint
+            - Name: 'sublocation_id'
+              Type: string
+            - Name: 'sublocation_type'
+              Type: string
+            - Name: 'subnet_id'
+              Type: string
+            - Name: 'tcp_flags'
+              Type: int
+            - Name: 'traffic_path'
+              Type: int
+            - Name: 'type'
+              Type: string
+            - Name: 'version'
+              Type: int
+            - Name: 'vpc_id'
+              Type: string
+
+  LambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "s3:GetBucketLocation",
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:AbortMultipartUpload",
+                    "s3:PutObject",
+                    "s3:ListMultipartUploadParts"
+                  ]
+                Resource: 
+                  [
+                    !Sub "arn:aws:s3:::${S3LogsBucket}/*",
+                    !Sub "arn:aws:s3:::${S3LogsBucket}"
+                  ] 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "s3:GetObject"
+                  ]
+                Resource: 
+                  [
+                    !Sub "arn:aws:s3:::${S3LogsBucket}/AWSLogs/*"
+                  ] 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "s3:ListBucket"
+                  ]
+                Resource: 
+                  [
+                    !Sub "arn:aws:s3:::${S3LogsBucket}"
+                  ] 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "athena:ListDataCatalogs",
+                    "cloudwatch:PutMetricData",
+                    "cloudwatch:GetMetricData",
+                    "athena:ListWorkGroups",
+                    "cloudwatch:ListMetrics"
+                  ]
+                Resource: "*" 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "athena:TagResource",
+                    "athena:CreateDataCatalog",
+                    "athena:StartQueryExecution",
+                    "athena:GetQueryResults",
+                    "athena:GetDatabase",
+                    "athena:GetDataCatalog",
+                    "athena:GetNamedQuery",
+                    "athena:CreateWorkGroup",
+                    "athena:ListNamedQueries",
+                    "athena:GetWorkGroup",
+                    "athena:UpdateNamedQuery",
+                    "athena:CreateNamedQuery",
+                    "athena:ListDatabases",
+                    "athena:StopQueryExecution",
+                    "athena:GetQueryExecution"
+                  ]
+                Resource: 
+                  [
+                    !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*",
+                    !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:datacatalog/*"
+                  ]
+              - Effect: "Allow"
+                Action:
+                  [
+                    "logs:CreateLogGroup"
+                  ]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: "Allow"
+                Action:
+                  [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ]
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/MetricAnalyser:*'
+              - Effect: "Allow"
+                Action:
+                  [
+                    "athena:ListWorkGroups"
+                  ]
+                Resource: !Sub "arn:aws:athena:${AWS::Region}:${AWS::AccountId}:workgroup/*"
+              - Effect: "Allow"
+                Action:
+                  [
+                    "glue:CreateDatabase",
+                    "glue:DeleteDatabase",
+                    "glue:GetDatabase",
+                    "glue:GetDatabases",
+                    "glue:UpdateDatabase",
+                    "glue:CreateTable",
+                    "glue:DeleteTable",
+                    "glue:BatchDeleteTable",
+                    "glue:UpdateTable",
+                    "glue:GetTable",
+                    "glue:GetTables",
+                    "glue:BatchCreatePartition",
+                    "glue:CreatePartition",
+                    "glue:DeletePartition",
+                    "glue:BatchDeletePartition",
+                    "glue:UpdatePartition",
+                    "glue:GetPartition",
+                    "glue:GetPartitions",
+                    "glue:BatchGetPartition"
+                  ]
+                Resource:  
+                  [
+                  !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/*",
+                  !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog",
+                  !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/*/*"
+                  ]
+                
+
+
+  AnalyserFunc:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Role: !GetAtt LambdaRole.Arn
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Architectures: 
+        - arm64
+      FunctionName: MetricAnalyser
+      Timeout: 120
+      MemorySize: 512
+      Environment:
+        Variables:
+          Database: !Ref VpcFlowLogsAthenaDatabase
+          S3Bucket: !Sub s3://${QueryOutputBucket}/Athena/query
+          WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
+          NameSpace: !Sub CWMNameSpace
+      Description: Analyses the Data from S3 using Athena and sends to Cloudwatch Custom Metrics.
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import urllib
+            from datetime import datetime
+            import time
+            import math
+            import os 
+
+            def lambda_handler(event, context):
+                
+                #AWS Resources Declaration
+                athena = boto3.client('athena')
+                s3 = boto3.client('s3')
+                cw = boto3.client('cloudwatch')
+                
+                #QueryStrings Declaration
+                now = datetime.now()
+                now = str(now)
+                yy = now[:4:1]
+                mm = now[5:7:1]
+                dd = now[8:10:1]
+                hh = now[11:13:1]
+                
+                byIP = "SELECT DISTINCT dstaddr, srcaddr, sum(bytes) AS totalBytes, sum(packets) AS totalPackets FROM us_east_1 where partition_0 =" + "'" + yy + "'" + " and partition_1 ="+ "'" + mm +"'" + " and partition_2 =" + "'" +dd + "'" +" and partition_3 =" +"'" + hh + "'" +" group by srcaddr, dstaddr ORDER BY totalBytes desc LIMIT 30;"
+    
+                #athena Execution 
+                athenaresponse = athena.start_query_execution(
+                    QueryString= byIP,
+                    QueryExecutionContext={
+                        'Database': os.environ['Database']
+                    },
+                    ResultConfiguration={
+                        'OutputLocation': os.environ['S3Bucket'],  
+                    },
+                    WorkGroup= os.environ['WorkGroup']
+                )
+                
+                QueryId = athenaresponse['QueryExecutionId']
+                
+                time.sleep(5)
+                #checking the Execution status
+                athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
+                
+                #looping - checking the status of query Execution till it's succeeded
+                while athenaStatus['QueryExecution']['Status']['State'] != "SUCCEEDED":
+                    athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
+                    
+                #output file location in s3 bucket 
+                print(athenaStatus['QueryExecution']['ResultConfiguration']['OutputLocation']) 
+                
+                #Getting quered results after status is succeeded
+                athenaQuery = athena.get_query_results(QueryExecutionId= QueryId)
+                
+                results = athenaQuery['ResultSet']['Rows']
+                print(results)
+                count = len(results)
+                
+                metric = []
+                i = 1
+                while i < count:
+                    a = {
+                                'MetricName': 'Packets',
+                                'Dimensions':  [
+                                    {
+                                        'Name': 'Source Address',
+                                        'Value': results[i]['Data'][1]['VarCharValue']
+                                    },
+                                    {
+                                        'Name': 'Destination Address',
+                                        'Value': results[i]['Data'][0]['VarCharValue']
+                                    }
+                                ],
+                                'Value': float(results[i]['Data'][3]['VarCharValue']),
+                                'Timestamp': datetime.now(),
+                                'Unit': 'None',
+                                'StorageResolution': 60
+                            }
+                    metric.append(a)
+                    b = {
+                                'MetricName': 'Bytes',
+                                'Dimensions':  [
+                                    {
+                                        'Name': 'Source Address',
+                                        'Value': results[i]['Data'][1]['VarCharValue']
+                                    },
+                                    {
+                                        'Name': 'Destination Address',
+                                        'Value': results[i]['Data'][0]['VarCharValue']
+                                    }
+                                ],
+                                'Value': float(results[i]['Data'][2]['VarCharValue']),
+                                'Timestamp': datetime.now(),
+                                'Unit': 'Bytes',
+                                'StorageResolution': 60
+                            }
+                    metric.append(b)
+                    i +=1
+                
+                BytesMetrics = cw.put_metric_data(
+                        Namespace= os.environ['NameSpace'],
+                        MetricData= metric
+                )
+                
+                return {
+                    'statusCode': 200,
+                    'body': BytesMetrics
+                }
+
+
+      Description: Invoke a function to analyse the data from S3 and send to Cloudwatch. 
+  
+
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Event Rule for Lambda Function trigger - Athena
+      Name: AthenaLambdaEvent
+      ScheduleExpression: "rate(5 minutes)"
+      State: ENABLED
+      Targets: 
+        -
+          Arn: 
+            Fn::GetAtt: 
+              - AnalyserFunc
+              - Arn
+          Id: MetricAnalyser
+
+  PermissionForEventsToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref AnalyserFunc
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: 
+        Fn::GetAtt: 
+          - EventRule
+          - Arn
+  
+  CrawlerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: GlueCrawler-S3
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "glue.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Description: Crawler Permissions Role includes access to S3 and AWS Managed Policies
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: "GluePolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action:
+                  [
+                    "s3:GetObject",
+                    "s3:PutObject"
+                  ]
+                Resource: 
+                  [
+                    !Sub "arn:aws:s3:::${S3LogsBucket}/AWSLogs/${AWS::AccountId}/vpcflowlogs/${AWS::Region}/*"
+                  ] 
+      
+  Crawler:
+    Type: AWS::Glue::Crawler
+    Properties: 
+      DatabaseName: !Ref VpcFlowLogsAthenaDatabase
+      Description: Crawler for every 59 minutes from s3 to table.
+      Name: VPCLogsCrawler
+      RecrawlPolicy: 
+          RecrawlBehavior: CRAWL_NEW_FOLDERS_ONLY
+      Role: !GetAtt CrawlerRole.Arn
+      Schedule: 
+        ScheduleExpression: "cron(0/59 * * * ? *)"
+      Targets: 
+        S3Targets: 
+          - Path: !Sub "s3://${S3LogsBucket}/AWSLogs/${AWS::AccountId}/vpcflowlogs/${AWS::Region}/"
+
+Outputs:
+  LambdaRole:
+    Description: Role Created using the template.
+    Value: !GetAtt LambdaRole.Arn
+  AnalyserFunc:
+    Description: lambda arn created for analysing the data from s3 to cloudwatch metrics.
+    Value: !GetAtt AnalyserFunc.Arn
+  EventRule:
+    Description: Event Rules to trigger lambda Arn
+    Value: !GetAtt EventRule.Arn
+  
+  
