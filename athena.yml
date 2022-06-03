@@ -622,7 +622,8 @@ Resources:
                   response = client.start_crawler(
                       Name= os.environ['crawler']
                   )
-
+                  print(response)
+                  
                   time.sleep(60)
 
                   #athena Execution 
