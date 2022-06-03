@@ -598,118 +598,130 @@ Resources:
             import time
             import math
             import os 
+            import base64
+            from botocore.exceptions import ClientError
 
             def lambda_handler(event, context):
-                
-                #AWS Resources Declaration
-                athena = boto3.client('athena')
-                s3 = boto3.client('s3')
-                cw = boto3.client('cloudwatch')
-                glue = boto3.client('glue')
+              try:  
+                  #AWS Resources Declaration
+                  athena = boto3.client('athena')
+                  s3 = boto3.client('s3')
+                  cw = boto3.client('cloudwatch')
+                  glue = boto3.client('glue')
 
-                #QueryStrings Declaration
-                #now = datetime.now()
-                #now = str(now)
-                #yy = now[:4:1]
-                #mm = now[5:7:1]
-                #dd = now[8:10:1]
-                #hh = now[11:13:1]
-                
-                byIP = ""
-                crawl = client.start_crawler(
-                    Name= os.environ['crawler']
-                )
+                  #QueryStrings Declaration
+                  #now = datetime.now()
+                  #now = str(now)
+                  #yy = now[:4:1]
+                  #mm = now[5:7:1]
+                  #dd = now[8:10:1]
+                  #hh = now[11:13:1]
+                  
+                  byIP = ""
+                  
+                  response = client.start_crawler(
+                      Name= os.environ['crawler']
+                  )
 
-                time.sleep(60)
+                  time.sleep(60)
 
-                #athena Execution 
-                athenaresponse = athena.start_query_execution(
-                    QueryString= byIP,
-                    QueryExecutionContext={
-                        'Database': os.environ['Database']
-                    },
-                    ResultConfiguration={
-                        'OutputLocation': os.environ['S3Bucket'],  
-                    },
-                    WorkGroup= os.environ['WorkGroup']
-                )
-                
-                QueryId = athenaresponse['QueryExecutionId']
-                
-                time.sleep(5)
-                #checking the Execution status
-                athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
-                
-                #looping - checking the status of query Execution till it's succeeded
-                while athenaStatus['QueryExecution']['Status']['State'] != "SUCCEEDED":
-                    athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
-                    
-                #output file location in s3 bucket 
-                print(athenaStatus['QueryExecution']['ResultConfiguration']['OutputLocation']) 
-                
-                #Getting quered results after status is succeeded
-                athenaQuery = athena.get_query_results(QueryExecutionId= QueryId)
-                
-                results = athenaQuery['ResultSet']['Rows']
-                print(results)
-                count = len(results)
-                
-                metric = []
-                metric1 = []
-                i = 1
-                while i < count:
-                    a = {
-                                'MetricName': 'Packets',
-                                'Dimensions':  [
-                                    {
-                                        'Name': 'Source Address',
-                                        'Value': results[i]['Data'][1]['VarCharValue']
-                                    },
-                                    {
-                                        'Name': 'Destination Address',
-                                        'Value': results[i]['Data'][0]['VarCharValue']
-                                    }
-                                ],
-                                'Value': float(results[i]['Data'][3]['VarCharValue']),
-                                'Timestamp': datetime.now(),
-                                'Unit': 'None',
-                                'StorageResolution': 60
-                            }
-                    metric.append(a)
-                    b = {
-                                'MetricName': 'Bytes',
-                                'Dimensions':  [
-                                    {
-                                        'Name': 'Source Address',
-                                        'Value': results[i]['Data'][1]['VarCharValue']
-                                    },
-                                    {
-                                        'Name': 'Destination Address',
-                                        'Value': results[i]['Data'][0]['VarCharValue']
-                                    }
-                                ],
-                                'Value': float(results[i]['Data'][2]['VarCharValue']),
-                                'Timestamp': datetime.now(),
-                                'Unit': 'Bytes',
-                                'StorageResolution': 60
-                            }
-                    metric1.append(b)
-                    i +=1
-                
-                BytesMetrics = cw.put_metric_data(
-                        Namespace= os.environ['NameSpace'],
-                        MetricData= metric
-                )
+                  #athena Execution 
+                  athenaresponse = athena.start_query_execution(
+                      QueryString= byIP,
+                      QueryExecutionContext={
+                          'Database': os.environ['Database']
+                      },
+                      ResultConfiguration={
+                          'OutputLocation': os.environ['S3Bucket'],  
+                      },
+                      WorkGroup= os.environ['WorkGroup']
+                  )
+                  
+                  QueryId = athenaresponse['QueryExecutionId']
+                  
+                  time.sleep(5)
+                  #checking the Execution status
+                  athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
+                  
+                  #looping - checking the status of query Execution till it's succeeded
+                  while athenaStatus['QueryExecution']['Status']['State'] != "SUCCEEDED":
+                      athenaStatus = athena.get_query_execution(QueryExecutionId= QueryId)
+                      
+                  #output file location in s3 bucket 
+                  print(athenaStatus['QueryExecution']['ResultConfiguration']['OutputLocation']) 
+                  
+                  #Getting quered results after status is succeeded
+                  athenaQuery = athena.get_query_results(QueryExecutionId= QueryId)
+                  
+                  results = athenaQuery['ResultSet']['Rows']
+                  print(results)
+                  count = len(results)
+                  
+                  metric = []
+                  metric1 = []
+                  i = 1
+                  while i < count:
+                      a = {
+                                  'MetricName': 'Packets',
+                                  'Dimensions':  [
+                                      {
+                                          'Name': 'Source Address',
+                                          'Value': results[i]['Data'][1]['VarCharValue']
+                                      },
+                                      {
+                                          'Name': 'Destination Address',
+                                          'Value': results[i]['Data'][0]['VarCharValue']
+                                      }
+                                  ],
+                                  'Value': float(results[i]['Data'][3]['VarCharValue']),
+                                  'Timestamp': datetime.now(),
+                                  'Unit': 'None',
+                                  'StorageResolution': 60
+                              }
+                      metric.append(a)
+                      b = {
+                                  'MetricName': 'Bytes',
+                                  'Dimensions':  [
+                                      {
+                                          'Name': 'Source Address',
+                                          'Value': results[i]['Data'][1]['VarCharValue']
+                                      },
+                                      {
+                                          'Name': 'Destination Address',
+                                          'Value': results[i]['Data'][0]['VarCharValue']
+                                      }
+                                  ],
+                                  'Value': float(results[i]['Data'][2]['VarCharValue']),
+                                  'Timestamp': datetime.now(),
+                                  'Unit': 'Bytes',
+                                  'StorageResolution': 60
+                              }
+                      metric1.append(b)
+                      i +=1
+                  
+                  BytesMetrics = cw.put_metric_data(
+                          Namespace= os.environ['NameSpace'],
+                          MetricData= metric
+                  )
 
-                BytesMetrics1 = cw.put_metric_data(
-                        Namespace= os.environ['NameSpace'],
-                        MetricData= metric1
-                )
+                  BytesMetrics1 = cw.put_metric_data(
+                          Namespace= os.environ['NameSpace'],
+                          MetricData= metric1
+                  )
                 
-                return {
-                    'statusCode': 200,
-                    'body': BytesMetrics
-                }
+              except ClientError as e:
+                  print(e.response['Error']['Message'],"the error")
+                  return {
+                              'statusCode': 404,
+                              "headers":{"Access-Control-Allow-Origin" : "*"},
+                              'body': json.dumps(str(e)) 
+                          }  
+              else:
+                  return {
+                  'statusCode': 200,
+                  "headers":{"Access-Control-Allow-Origin" : "*"},
+                  'body': json.dumps(response)
+              }
     Description: Invoke a function to analyse the data from S3 and send to Cloudwatch
   
 
