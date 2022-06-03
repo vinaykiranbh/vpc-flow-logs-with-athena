@@ -587,6 +587,7 @@ Resources:
           S3Bucket: !Sub s3://${QueryOutputBucket}/Athena/query
           WorkGroup: !Ref fl04c138b19bf7fcb18daily2022052320220523WorkGroup
           NameSpace: !Sub CWMNameSpace
+          crawler: !Ref Crawler
       Description: Analyses the Data from S3 using Athena and sends to Cloudwatch Custom Metrics.
       Code:
         ZipFile: |
@@ -604,17 +605,23 @@ Resources:
                 athena = boto3.client('athena')
                 s3 = boto3.client('s3')
                 cw = boto3.client('cloudwatch')
-                
+                glue = boto3.client('glue')
+
                 #QueryStrings Declaration
-                now = datetime.now()
-                now = str(now)
-                yy = now[:4:1]
-                mm = now[5:7:1]
-                dd = now[8:10:1]
-                hh = now[11:13:1]
+                #now = datetime.now()
+                #now = str(now)
+                #yy = now[:4:1]
+                #mm = now[5:7:1]
+                #dd = now[8:10:1]
+                #hh = now[11:13:1]
                 
-                byIP = "SELECT DISTINCT dstaddr, srcaddr, sum(bytes) AS totalBytes, sum(packets) AS totalPackets FROM us_east_1 where partition_0 =" + "'" + yy + "'" + " and partition_1 ="+ "'" + mm +"'" + " and partition_2 =" + "'" +dd + "'" +" and partition_3 =" +"'" + hh + "'" +" group by srcaddr, dstaddr ORDER BY totalBytes desc LIMIT 30;"
-    
+                byIP = ""
+                crawl = client.start_crawler(
+                    Name= os.environ['crawler']
+                )
+
+                time.sleep(60)
+
                 #athena Execution 
                 athenaresponse = athena.start_query_execution(
                     QueryString= byIP,
@@ -648,6 +655,7 @@ Resources:
                 count = len(results)
                 
                 metric = []
+                metric1 = []
                 i = 1
                 while i < count:
                     a = {
@@ -685,12 +693,17 @@ Resources:
                                 'Unit': 'Bytes',
                                 'StorageResolution': 60
                             }
-                    metric.append(b)
+                    metric1.append(b)
                     i +=1
                 
                 BytesMetrics = cw.put_metric_data(
                         Namespace= os.environ['NameSpace'],
                         MetricData= metric
+                )
+
+                BytesMetrics1 = cw.put_metric_data(
+                        Namespace= os.environ['NameSpace'],
+                        MetricData= metric1
                 )
                 
                 return {
@@ -767,8 +780,6 @@ Resources:
       RecrawlPolicy: 
           RecrawlBehavior: CRAWL_NEW_FOLDERS_ONLY
       Role: !GetAtt CrawlerRole.Arn
-      Schedule: 
-        ScheduleExpression: "cron(0/59 * * * ? *)"
       Targets: 
         S3Targets: 
           - Path: !Sub "s3://${S3LogsBucket}/AWSLogs/${AWS::AccountId}/vpcflowlogs/${AWS::Region}/"
