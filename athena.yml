@@ -807,5 +807,7 @@ Outputs:
   EventRule:
     Description: Event Rules to trigger lambda Arn
     Value: !GetAtt EventRule.Arn
+
+  
   
   
